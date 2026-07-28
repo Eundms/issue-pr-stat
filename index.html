@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k8s-ko triage console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ── tokens ─────────────────────────────────────────────────────────────
+   심각도는 트래픽 라이트가 아니라 시퀀셜 램프다.
+   이 보드의 모든 항목은 "손봐야 할 것"이므로 초록(=안전)은 거짓 신호다.
+   대신 close 까지 남은 거리를 명도로 인코딩한다.
+     s1 정상(<14일)  s2 응답지연(14일+)  s3 stale(90일+)  s4 rotten(120일+)
+   s1~s3 은 Kubernetes 브랜드 블루(#326CE5) 계열 안에서 어두워지고,
+   s4 에서만 색상이 꺾인다 — 색상 전환 자체가 "종류가 다른 문제"라는 신호.
+   명도는 단조 감소하므로 흑백/색각이상에서도 순서가 보존된다. */
+html[data-theme="light"]{
+  --bg:#f4f6fb; --panel:#ffffff; --panel-2:#f7f9fd; --raise:#eef3fa;
+  --hair:#dce3f0; --hair-soft:#e1e9f5;
+  --fg:#111a2e; --fg-2:#4c5a75; --fg-3:#8493ad;
+  --link:#326ce5;
+  /* 심각도 4단계 원색: 청(정상) → 황(응답지연) → 주(stale) → 적(rotten) */
+  --s1:#2563eb; --s2:#eab308; --s3:#f97316; --s4:#dc2626;
+  --s1-bg:rgba(37,99,235,.10); --s2-bg:rgba(234,179,8,.14);
+  --s3-bg:rgba(249,115,22,.13); --s4-bg:rgba(220,38,38,.11);
+  --shadow:0 1px 2px rgba(20,30,60,.05);
+}
+html[data-theme="dark"]{
+  --bg:#0c1220; --panel:#141c2e; --panel-2:#19223a; --raise:#1f2a45;
+  --hair:#232f4b; --hair-soft:#1e2942;
+  --fg:#e2e8f7; --fg-2:#9aa8c4; --fg-3:#66748f;
+  --link:#7ba5ff;
+  /* 다크 배경 대비를 위해 채도 유지 + 명도만 올린 청·황·주·적 */
+  --s1:#3b82f6; --s2:#facc15; --s3:#fb923c; --s4:#f87171;
+  --s1-bg:rgba(59,130,246,.16); --s2-bg:rgba(250,204,21,.16);
+  --s3-bg:rgba(251,146,60,.15); --s4-bg:rgba(248,113,113,.15);
+  --shadow:0 1px 0 rgba(255,255,255,.03) inset;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums}
+button,input,select{font:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--link); outline-offset:1px; border-radius:3px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--hair); border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── shell ──────────────────────────────────────────────────────────── */
+.shell{display:grid; grid-template-columns:216px 1fr; grid-template-rows:46px 1fr; height:100vh}
+.topbar{grid-column:1/-1; display:flex; align-items:center; gap:14px;
+  padding:0 14px; background:var(--panel); border-bottom:1px solid var(--hair)}
+.brand{display:flex; align-items:center; gap:8px; font-weight:600; letter-spacing:-.01em; font-size:13.5px}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--s1);
+  box-shadow:0 0 0 3px var(--s1-bg); flex:none}
+.crumb{font-size:11.5px; color:var(--fg-2); letter-spacing:.02em}
+.crumb b{color:var(--fg); font-weight:500}
+.topbar .spacer{flex:1}
+.stat{font-size:11px; color:var(--fg-3); white-space:nowrap}
+.stat b{color:var(--fg-2); font-weight:500}
+.iconbtn{background:var(--panel-2); border:1px solid var(--hair); border-radius:6px;
+  width:28px;height:28px; display:grid;place-items:center; cursor:pointer; color:var(--fg-2)}
+.iconbtn:hover{color:var(--fg); border-color:var(--fg-3)}
+
+/* ── rail ───────────────────────────────────────────────────────────── */
+.rail{background:var(--panel); border-right:1px solid var(--hair); overflow-y:auto; padding:12px 0 20px}
+.rail h3{margin:0; padding:0 14px 7px; font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--fg-3); font-weight:600}
+.railgroup{margin-bottom:20px}
+.railitem{display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+  padding:7px 14px; background:none; border:0; border-left:2px solid transparent;
+  cursor:pointer; color:var(--fg-2); font-size:12.5px}
+.railitem:hover{background:var(--panel-2); color:var(--fg)}
+.railitem[aria-current="true"]{background:var(--panel-2); color:var(--fg);
+  border-left-color:var(--link); font-weight:500}
+.railitem .dot{width:6px;height:6px;border-radius:2px;flex:none}
+.railitem .lbl{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.railitem .n{font-size:11px; color:var(--fg-3)}
+.railitem[aria-current="true"] .n{color:var(--fg)}
+.thr{padding:0 14px}
+.thr dl{margin:0; display:grid; grid-template-columns:1fr auto; gap:5px 8px; font-size:11.5px}
+.thr dt{color:var(--fg-3)} .thr dd{margin:0; color:var(--fg-2)}
+
+/* ── main ───────────────────────────────────────────────────────────── */
+.main{overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; min-width:0}
+
+.tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+.tile{background:var(--panel); border:1px solid var(--hair); border-radius:8px;
+  padding:11px 13px 12px; cursor:pointer; text-align:left; box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:8px; min-width:0}
+.tile:hover{border-color:var(--fg-3)}
+.tile[aria-current="true"]{border-color:var(--link)}
+.tile .cap{font-size:11px; color:var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tile .big{font-size:27px; font-weight:700; line-height:1; letter-spacing:-.04em}
+.tile .strip{display:flex; height:4px; border-radius:2px; overflow:hidden; background:var(--hair-soft)}
+.tile .strip i{display:block; height:100%}
+.tile .foot{font-size:10.5px; color:var(--fg-3)}
+
+/* trend card */
+.trend-grid{padding:6px 13px 12px}
+.trend-row{display:grid; grid-template-columns:10px 88px 1fr 34px 46px; align-items:center;
+  gap:10px; padding:7px 0; border-top:1px solid var(--hair-soft)}
+.trend-row:first-child{border-top:0}
+.trend-dot{width:8px;height:8px;border-radius:2px}
+.trend-label{font-size:12px; color:var(--fg-2)}
+.trend-spark{min-width:0; line-height:0}
+.trend-spark svg{width:100%; height:30px; display:block}
+.trend-cur{text-align:right; font-size:13px; font-weight:600}
+.trend-delta{text-align:right}
+.delta{font-size:11.5px; font-weight:600}
+.delta.down{color:#16a34a}  /* 감소 = 확인 대상이 줄어듦 = 좋음 (초록 고정) */
+.delta.up{color:#dc2626}    /* 증가 = 쌓임 = 주의 (빨강 고정) */
+.delta.flat{color:var(--fg-3)}
+@media (max-width:640px){
+  .trend-row{grid-template-columns:10px 70px 1fr 30px 40px; gap:7px}
+}
+
+.card{background:var(--panel); border:1px solid var(--hair); border-radius:8px; box-shadow:var(--shadow)}
+.card > header{display:flex; align-items:center; gap:10px; padding:9px 13px; border-bottom:1px solid var(--hair-soft)}
+.card > header h2{margin:0; font-size:11.5px; font-weight:600; letter-spacing:.02em; color:var(--fg-2)}
+.card > header .note{font-size:10.5px; color:var(--fg-3); margin-left:auto}
+
+/* histogram */
+.hist{display:flex; align-items:flex-end; gap:5px; padding:14px 13px 0; height:104px}
+.bin{flex:1; display:flex; flex-direction:column; justify-content:flex-end; gap:5px;
+  background:none; border:0; padding:0; cursor:pointer; min-width:0}
+.bin .bar{border-radius:3px 3px 0 0; min-height:2px; transition:opacity .12s, transform .12s;
+  transform-origin:bottom}
+.bin .cnt{font-size:10px; color:var(--fg-2); text-align:center}
+.bin:hover .bar{opacity:.78}
+.bin[aria-pressed="true"] .bar{outline:1.5px solid var(--fg); outline-offset:1px}
+.bin:disabled{cursor:default}
+.hist-axis{display:flex; gap:5px; padding:6px 13px 12px; border-top:1px solid var(--hair-soft); margin-top:8px}
+.hist-axis span{flex:1; text-align:center; font-size:10px; color:var(--fg-3); min-width:0}
+
+/* toolbar */
+.toolbar{display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:9px 13px;
+  border-bottom:1px solid var(--hair-soft)}
+.search{position:relative; flex:0 1 250px}
+.search input{width:100%; background:var(--panel-2); border:1px solid var(--hair);
+  border-radius:6px; padding:5px 10px 5px 28px; font-size:12px}
+.search svg{position:absolute; left:8px; top:50%; transform:translateY(-50%); color:var(--fg-3)}
+.search kbd{position:absolute; right:7px; top:50%; transform:translateY(-50%);
+  font-family:"JetBrains Mono",monospace; font-size:10px; color:var(--fg-3);
+  border:1px solid var(--hair); border-radius:3px; padding:0 4px}
+.chips{display:flex; gap:5px; flex-wrap:wrap}
+.chip{background:var(--panel-2); border:1px solid var(--hair); border-radius:5px;
+  padding:4px 9px; font-size:11px; color:var(--fg-2); cursor:pointer; display:flex; align-items:center; gap:6px}
+.chip:hover{color:var(--fg)}
+.chip[aria-pressed="true"]{color:var(--fg); border-color:currentColor}
+.chip i{width:6px;height:6px;border-radius:2px;display:block}
+.chip .c{font-family:"JetBrains Mono",monospace; font-size:10px; color:var(--fg-3)}
+.toolbar .spacer{flex:1}
+.ghost{background:none; border:1px solid var(--hair); border-radius:5px; padding:4px 9px;
+  font-size:11px; color:var(--fg-2); cursor:pointer; white-space:nowrap}
+.ghost:hover{color:var(--fg); border-color:var(--fg-3)}
+
+/* table */
+.tablewrap{overflow-x:auto}
+table{width:100%; border-collapse:collapse}
+thead th{position:sticky; top:0; z-index:2; background:var(--panel-2);
+  font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--fg-3);
+  font-weight:600; text-align:left; padding:7px 10px; border-bottom:1px solid var(--hair);
+  white-space:nowrap}
+th.sortable{cursor:pointer; user-select:none}
+th.sortable:hover{color:var(--fg-2)}
+th .arrow{opacity:0; margin-left:3px}
+th[aria-sort] .arrow{opacity:1; color:var(--link)}
+tbody tr{border-bottom:1px solid var(--hair-soft)}
+tbody tr:hover{background:var(--panel-2)}
+tbody td{padding:8px 10px; vertical-align:top}
+td.sev{padding:0; width:3px}
+td.sev i{display:block; width:3px; height:100%; min-height:34px}
+td.id{white-space:nowrap; width:1%}
+td.id a{color:var(--fg-3); text-decoration:none; font-size:11.5px}
+td.id a:hover{color:var(--link)}
+td.ttl{min-width:280px}
+td.ttl a{color:var(--fg); text-decoration:none; font-weight:500; font-size:12.5px}
+td.ttl a:hover{color:var(--link); text-decoration:underline; text-underline-offset:2px}
+td.ttl .sub{margin-top:4px; display:flex; gap:5px; flex-wrap:wrap; align-items:center}
+td.who{white-space:nowrap; color:var(--fg-2); font-size:11.5px; width:1%}
+td.dwell{white-space:nowrap; width:132px}
+.dwell-row{display:flex; align-items:center; gap:7px}
+.dwell-bar{flex:1; height:4px; background:var(--hair-soft); border-radius:2px; overflow:hidden; min-width:34px}
+.dwell-bar i{display:block; height:100%; border-radius:2px}
+.dwell-n{font-size:11.5px; font-weight:500; white-space:nowrap}
+td.link{white-space:nowrap; width:1%}
+td.cat{white-space:nowrap; width:1%; font-size:11px; color:var(--fg-2)}
+.pill{display:inline-flex; align-items:center; gap:4px; border-radius:4px; padding:1px 6px;
+  font-size:10.5px; border:1px solid transparent; white-space:nowrap;
+  font-family:"JetBrains Mono",monospace}
+.pill.s1{color:var(--fg-2); background:var(--s1-bg)}
+.pill.s2{color:var(--s2); background:var(--s2-bg)}
+.pill.s3{color:var(--s3); background:var(--s3-bg)}
+.pill.s4{color:var(--s4); background:var(--s4-bg)}
+.pill.mute{color:var(--fg-3); border-color:var(--hair)}
+a.pill{text-decoration:none}
+a.pill:hover{border-color:currentColor}
+
+.empty{padding:44px 16px; text-align:center; color:var(--fg-3); font-size:12.5px}
+.empty b{display:block; color:var(--fg-2); font-size:13.5px; margin-bottom:5px; font-weight:600}
+.banner{background:var(--s2-bg); color:var(--s2); border:1px solid currentColor;
+  border-radius:7px; padding:8px 12px; font-size:11.5px}
+
+@media (max-width:1000px){ .tiles{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:760px){
+  .shell{grid-template-columns:1fr; grid-template-rows:46px auto 1fr}
+  .rail{border-right:0; border-bottom:1px solid var(--hair); display:flex; gap:6px;
+    overflow-x:auto; padding:9px 12px}
+  .rail h3,.rail .thr{display:none}
+  .railgroup{margin:0; display:flex; gap:6px}
+  .railitem{width:auto; border-left:0; border:1px solid var(--hair); border-radius:6px; white-space:nowrap}
+  .railitem[aria-current="true"]{border-color:var(--link)}
+  .hist{height:84px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <span class="brand"><span class="pulse" id="pulse"></span>k8s-ko triage</span>
+    <span class="crumb mono"><b id="c-repo">kubernetes/website</b> · <b id="c-label">language/ko</b></span>
+    <span class="spacer"></span>
+    <span class="stat mono">issue <b id="s-issue">–</b></span>
+    <span class="stat mono">pr <b id="s-pr">–</b></span>
+    <span class="stat mono">수집 <b id="s-gen">–</b></span>
+    <button class="iconbtn" id="theme" title="테마 전환" aria-label="테마 전환">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+
+  <nav class="rail">
+    <div class="railgroup">
+      <h3>분류</h3>
+      <div id="rail-cats"></div>
+    </div>
+    <div class="railgroup thr">
+      <h3>임계값</h3>
+      <dl>
+        <dt>PR 정체</dt><dd class="mono" id="t-stale">–</dd>
+        <dt>PR 장기 오픈</dt><dd class="mono" id="t-long">–</dd>
+        <dt>이슈 방치</dt><dd class="mono" id="t-nopr">–</dd>
+      </dl>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div id="banner" hidden class="banner"></div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <section class="card" id="trend-card" hidden>
+      <header>
+        <h2>주차별 추이</h2>
+        <span class="note" id="trend-note"></span>
+      </header>
+      <div id="trend-body"></div>
+    </section>
+
+    <section class="card">
+      <header>
+        <h2>방치 기간 분포</h2>
+        <span class="note" id="hist-note">막대를 클릭하면 해당 구간만 표시</span>
+      </header>
+      <div class="hist" id="hist"></div>
+      <div class="hist-axis" id="hist-axis"></div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <label class="search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="q" placeholder="제목 · 번호 · 작성자" aria-label="검색">
+          <kbd>/</kbd>
+        </label>
+        <div class="chips" id="sevchips"></div>
+        <span class="spacer"></span>
+        <button class="ghost" id="copy">마크다운 복사</button>
+        <button class="ghost" id="reset">필터 초기화</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sev" aria-label="심각도"></th>
+              <th class="sortable" data-sort="number">항목<span class="arrow">↓</span></th>
+              <th>제목</th>
+              <th id="th-cat" hidden>분류</th>
+              <th>작성자</th>
+              <th class="sortable" data-sort="dwell">체류<span class="arrow">↓</span></th>
+              <th>연결</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="empty" hidden></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* ─────────────────────────── 데모 폴백 데이터 ─────────────────────────── */
+const DEMO={demo:true,generatedAt:new Date().toISOString(),repo:"kubernetes/website",label:"language/ko",
+thresholds:{staleDays:30,longOpenDays:60,noPrDays:30},totals:{openIssues:38,openPrs:21},
+sections:[
+{id:"issue-pr-closed",title:"Issue O / PR closed",kind:"issue",metric:"마지막 활동",hint:"작업 중단",items:[
+ {number:43628,title:"[ko] Translate concepts/workloads/pods to Korean",url:"#",author:"contributor-a",labels:["language/ko"],comments:6,ageDays:842,idleDays:611,sortKey:611,linkedPrs:[{number:43701,url:"#",state:"CLOSED",author:"contributor-a",idleDays:600}]},
+ {number:52792,title:"[ko] Update outdated tasks/configure-pod-container pages",url:"#",author:"contributor-d",labels:["language/ko"],comments:3,ageDays:392,idleDays:221,sortKey:221,linkedPrs:[{number:52901,url:"#",state:"CLOSED",author:"contributor-d",idleDays:219}]},
+ {number:53682,title:"[ko] Fix broken links in reference/kubectl",url:"#",author:"contributor-c",labels:["language/ko"],comments:1,ageDays:268,idleDays:154,sortKey:154,linkedPrs:[{number:53810,url:"#",state:"CLOSED",author:"contributor-c",idleDays:150}]}]},
+{id:"issue-pr-stale",title:"Issue O / PR stale",kind:"issue",metric:"PR 미갱신",hint:"리뷰 정체",items:[
+ {number:54440,title:"[ko] Translate reference/glossary terms batch 3",url:"#",author:"contributor-b",labels:["language/ko"],comments:4,ageDays:196,idleDays:98,sortKey:98,linkedPrs:[{number:54533,url:"#",state:"OPEN",author:"contributor-b",idleDays:98}]},
+ {number:55166,title:"[ko] Update kubeadm install guide for v1.33",url:"#",author:"contributor-e",labels:["language/ko"],comments:2,ageDays:124,idleDays:64,sortKey:64,linkedPrs:[{number:55320,url:"#",state:"OPEN",author:"contributor-e",idleDays:64}]},
+ {number:55568,title:"[ko] Review terminology for StatefulSet docs",url:"#",author:"contributor-f",labels:["language/ko"],comments:0,ageDays:92,idleDays:43,sortKey:43,linkedPrs:[{number:55702,url:"#",state:"OPEN",author:"contributor-f",idleDays:43}]}]},
+{id:"pr-long-open",title:"PR long open",kind:"pr",metric:"오픈 경과",hint:"머지 결정 필요",items:[
+ {number:54533,title:"ko: translate reference/glossary terms (batch 3)",url:"#",author:"contributor-b",labels:["language/ko","lgtm"],state:"OPEN",isDraft:false,reviewDecision:"APPROVED",flags:{lgtm:true,approved:false,hold:false,needsRebase:true,cncfUnsigned:false},ageDays:214,idleDays:98,sortKey:214},
+ {number:55320,title:"ko: update kubeadm install guide for v1.33",url:"#",author:"contributor-e",labels:["language/ko"],state:"OPEN",isDraft:false,reviewDecision:"REVIEW_REQUIRED",flags:{lgtm:false,approved:false,hold:false,needsRebase:false,cncfUnsigned:false},ageDays:118,idleDays:64,sortKey:118},
+ {number:55891,title:"ko: fix typos across content/ko/docs/concepts",url:"#",author:"contributor-g",labels:["language/ko"],state:"OPEN",isDraft:true,reviewDecision:null,flags:{lgtm:false,approved:false,hold:true,needsRebase:false,cncfUnsigned:false},ageDays:71,idleDays:35,sortKey:71}]},
+{id:"issue-no-pr",title:"PR 없는 Issue",kind:"issue",metric:"생성 경과",hint:"자원자 필요",items:[
+ {number:51204,title:"[ko] content/ko/docs/concepts/security 전체 미번역",url:"#",author:"k8s-ci-robot",labels:["language/ko","help wanted"],comments:0,ageDays:455,idleDays:455,sortKey:455,linkedPrs:[]},
+ {number:55980,title:"[ko] Gateway API 문서 한글화 필요",url:"#",author:"contributor-f",labels:["language/ko"],comments:1,ageDays:48,idleDays:48,sortKey:48,linkedPrs:[]}]}
+]};
+
+const DEMO_TREND=[
+ {week:"2026-W24",issuePrClosed:5,issuePrStale:6,prLongOpen:5,issueNoPr:9},
+ {week:"2026-W25",issuePrClosed:4,issuePrStale:6,prLongOpen:5,issueNoPr:8},
+ {week:"2026-W26",issuePrClosed:4,issuePrStale:5,prLongOpen:4,issueNoPr:8},
+ {week:"2026-W27",issuePrClosed:3,issuePrStale:5,prLongOpen:4,issueNoPr:7},
+ {week:"2026-W28",issuePrClosed:3,issuePrStale:4,prLongOpen:4,issueNoPr:7},
+ {week:"2026-W29",issuePrClosed:2,issuePrStale:4,prLongOpen:3,issueNoPr:6},
+ {week:"2026-W30",issuePrClosed:3,issuePrStale:3,prLongOpen:3,issueNoPr:7},
+ {week:"2026-W31",issuePrClosed:3,issuePrStale:3,prLongOpen:3,issueNoPr:2}
+];
+
+/* ─────────────────────────── 유틸 ─────────────────────────── */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const CATCOLOR={"issue-pr-closed":"s4","issue-pr-stale":"s3","pr-long-open":"s2","issue-no-pr":"mute"};
+
+/* 심각도 4단계 — 임의 구간이 아니라 Prow 실제 임계값에 맞춘다.
+   14일: SIG Docs PR wrangler 가 close 를 검토하는 시점 (사람 시계)
+   90일: k8s-triage-robot 이 lifecycle/stale 부착 (봇 시계)
+   120일: lifecycle/rotten, 여기서 30일 뒤 자동 close */
+const SEV=[
+ {k:"s1",label:"정상 <14일",     min:0,   color:"var(--s1)"},
+ {k:"s2",label:"응답 지연 14일+", min:14,  color:"var(--s2)"},
+ {k:"s3",label:"stale 90일+",    min:90,  color:"var(--s3)"},
+ {k:"s4",label:"rotten 120일+",  min:120, color:"var(--s4)"}
+];
+const sevOf=d=>d>=120?3:d>=90?2:d>=14?1:0;
+
+/* 히스토그램 bin — 76~90 구간은 "봇이 stale 붙이기 직전" 개입 창 */
+const BINS=[[0,14],[14,30],[30,76],[76,90],[90,120],[120,Infinity]];
+const binLabel=i=>["<14","14–30","30–76","76–90","90–120","120+"][i];
+const binOf=d=>BINS.findIndex(([a,b])=>d>=a&&d<b);
+
+/* 체류 막대: 제곱근 스케일. 100% = 150일 = 봇이 자동 close 하는 시점 */
+const CAP=150;
+const barPct=d=>Math.sqrt(Math.min(Math.max(d,0),CAP))/Math.sqrt(CAP)*100;
+
+/* ─────────────────────────── 상태 ─────────────────────────── */
+let DATA=null, ROWS=[];
+const S={cat:"all", q:"", sev:new Set(), bin:null, sort:"dwell", dir:-1};
+
+function flatten(data){
+  const out=[];
+  for(const sec of data.sections){
+    for(const it of sec.items){
+      const d=it.sortKey ?? it.idleDays ?? it.ageDays ?? 0;
+      out.push({...it, cat:sec.id, catTitle:sec.title, kind:sec.kind, metric:sec.metric, dwell:d, sev:sevOf(d)});
+    }
+  }
+  return out;
+}
+
+function filtered({ignore}={}){
+  const q=S.q.trim().toLowerCase();
+  return ROWS.filter(r=>{
+    if(ignore!=="cat" && S.cat!=="all" && r.cat!==S.cat) return false;
+    if(ignore!=="sev" && S.sev.size && !S.sev.has(r.sev)) return false;
+    if(ignore!=="bin" && S.bin!==null && binOf(r.dwell)!==S.bin) return false;
+    if(q && !(r.title.toLowerCase().includes(q) || String(r.number).includes(q)
+             || (r.author||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+function sorted(rows){
+  const key=S.sort;
+  return [...rows].sort((a,b)=>{
+    const av=key==="number"?a.number:a.dwell, bv=key==="number"?b.number:b.dwell;
+    return (av-bv)*S.dir || a.number-b.number;
+  });
+}
+
+/* ─────────────────────────── 렌더 ─────────────────────────── */
+function renderRail(){
+  const el=$("#rail-cats");
+  const all=filtered({ignore:"cat"});
+  const mk=(id,label,n,colorKey)=>`
+    <button class="railitem" data-cat="${id}" aria-current="${S.cat===id}">
+      <span class="dot" style="background:${colorKey?`var(--${colorKey})`:"var(--fg-3)"}"></span>
+      <span class="lbl">${esc(label)}</span><span class="n mono">${n}</span>
+    </button>`;
+  let html=mk("all","전체",all.length,null);
+  for(const sec of DATA.sections){
+    html+=mk(sec.id,sec.title,all.filter(r=>r.cat===sec.id).length,CATCOLOR[sec.id]);
+  }
+  el.innerHTML=html;
+  el.querySelectorAll(".railitem").forEach(b=>b.onclick=()=>{ S.cat=b.dataset.cat; S.bin=null; render(); });
+}
+
+function renderTiles(){
+  const base=filtered({ignore:"cat"});
+  $("#tiles").innerHTML=DATA.sections.map(sec=>{
+    const rows=base.filter(r=>r.cat===sec.id);
+    const counts=SEV.map((_,i)=>rows.filter(r=>r.sev===i).length);
+    const total=rows.length||1;
+    const strip=counts.map((c,i)=>c?`<i style="width:${c/total*100}%;background:${SEV[i].color}"></i>`:"").join("")
+      || `<i style="width:100%;background:var(--hair)"></i>`;
+    const worst=rows.length?Math.max(...rows.map(r=>r.dwell)):0;
+    return `<button class="tile" data-cat="${sec.id}" aria-current="${S.cat===sec.id}">
+      <span class="cap">${esc(sec.title)}</span>
+      <span class="big mono" style="color:${rows.length?SEV[Math.max(0,...rows.map(r=>r.sev))].color:"var(--fg-3)"}">${String(rows.length).padStart(2,"0")}</span>
+      <span class="strip">${strip}</span>
+      <span class="foot mono">${rows.length?`최장 ${worst}일`:"해당 없음"}</span>
+    </button>`;
+  }).join("");
+  $("#tiles").querySelectorAll(".tile").forEach(b=>b.onclick=()=>{
+    S.cat = S.cat===b.dataset.cat ? "all" : b.dataset.cat; S.bin=null; render();
+  });
+}
+
+function renderHist(){
+  const rows=filtered({ignore:"bin"});
+  const counts=BINS.map((_,i)=>rows.filter(r=>binOf(r.dwell)===i).length);
+  const max=Math.max(1,...counts);
+  $("#hist").innerHTML=counts.map((c,i)=>{
+    const h=c?Math.max(6,(c/max)*72):2;
+    const color=SEV[sevOf(BINS[i][0])].color;
+    return `<button class="bin" data-bin="${i}" aria-pressed="${S.bin===i}" ${c?"":"disabled"}
+             title="${binLabel(i)}일 · ${c}건">
+      <span class="cnt mono">${c||""}</span>
+      <span class="bar" style="height:${h}px;background:${c?color:"var(--hair)"}"></span>
+    </button>`;
+  }).join("");
+  $("#hist-axis").innerHTML=BINS.map((_,i)=>`<span class="mono">${binLabel(i)}</span>`).join("");
+  $("#hist").querySelectorAll(".bin").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.bin; S.bin = S.bin===i ? null : i; render();
+  });
+  $("#hist-note").textContent = S.bin!==null
+    ? `${binLabel(S.bin)}일 구간만 표시 중 — 다시 클릭하면 해제`
+    : "막대를 클릭하면 해당 구간만 표시";
+}
+
+function renderChips(){
+  const base=filtered({ignore:"sev"});
+  $("#sevchips").innerHTML=SEV.map((s,i)=>{
+    const n=base.filter(r=>r.sev===i).length;
+    return `<button class="chip" data-sev="${i}" aria-pressed="${S.sev.has(i)}" style="${S.sev.has(i)?`color:${s.color}`:""}">
+      <i style="background:${s.color}"></i>${s.label}<span class="c">${n}</span></button>`;
+  }).join("");
+  $("#sevchips").querySelectorAll(".chip").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.sev; S.sev.has(i)?S.sev.delete(i):S.sev.add(i); render();
+  });
+}
+
+function prPill(p){
+  // merged 는 이미 끝난 일이라 색을 쓰지 않는다. 색은 조치가 필요한 곳에만.
+  const cls=p.state==="MERGED"?"mute":p.state==="CLOSED"?"s4":"s2";
+  return `<a class="pill ${cls}" href="${esc(p.url)}" target="_blank" rel="noopener">#${p.number} ${p.state.toLowerCase()}</a>`;
+}
+function flagPills(f,isDraft){
+  // 차단 신호만 색을 갖는다. 충족 신호(lgtm/approved)는 무채색 — 문제가 아니므로.
+  const o=[];
+  if(isDraft) o.push(`<span class="pill mute">draft</span>`);
+  if(!f) return o.join(" ");
+  if(f.hold)         o.push(`<span class="pill s4">hold</span>`);
+  if(f.cncfUnsigned) o.push(`<span class="pill s4">cla</span>`);
+  if(f.needsRebase)  o.push(`<span class="pill s3">rebase</span>`);
+  if(f.lgtm)         o.push(`<span class="pill s1">lgtm</span>`);
+  if(f.approved)     o.push(`<span class="pill s1">approved</span>`);
+  return o.join(" ");
+}
+
+function renderTable(){
+  const rows=sorted(filtered());
+  const showCat=S.cat==="all";
+  $("#th-cat").hidden=!showCat;
+
+  $("#tbody").innerHTML=rows.map(r=>{
+    const c=SEV[r.sev].color;
+    let linkCell="—";
+    if(r.kind==="issue" && r.linkedPrs?.length){
+      linkCell=r.linkedPrs.slice(0,2).map(prPill).join(" ")
+        + (r.linkedPrs.length>2?` <span class="pill mute">+${r.linkedPrs.length-2}</span>`:"");
+    } else if(r.kind==="pr"){
+      linkCell=flagPills(r.flags,r.isDraft)||`<span class="pill mute">–</span>`;
+    }
+    const sub=[];
+    if(r.kind==="issue"){
+      sub.push(`<span class="pill mute">댓글 ${r.comments??0}</span>`);
+      if(r.assignees?.length) sub.push(`<span class="pill mute">담당 ${esc(r.assignees[0])}</span>`);
+    } else if(r.reviewDecision){
+      sub.push(`<span class="pill mute">${esc(r.reviewDecision.toLowerCase().replace(/_/g,' '))}</span>`);
+    }
+    return `<tr>
+      <td class="sev"><i style="background:${c}"></i></td>
+      <td class="id"><a class="mono" href="${esc(r.url)}" target="_blank" rel="noopener">${r.kind==="pr"?"PR":"IS"}&nbsp;${r.number}</a></td>
+      <td class="ttl">
+        <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+        <div class="sub">${sub.join(" ")}</div>
+      </td>
+      ${showCat?`<td class="cat">${esc(r.catTitle)}</td>`:""}
+      <td class="who">@${esc(r.author||"unknown")}</td>
+      <td class="dwell">
+        <span class="dwell-row">
+          <span class="dwell-bar"><i style="width:${barPct(r.dwell).toFixed(1)}%;background:${c}"></i></span>
+          <span class="dwell-n mono" style="color:${c}">${r.dwell}d</span>
+        </span>
+      </td>
+      <td class="link">${linkCell}</td>
+    </tr>`;
+  }).join("");
+
+  const empty=$("#empty");
+  empty.hidden=rows.length>0;
+  if(!rows.length){
+    const anyFilter=S.q||S.sev.size||S.bin!==null||S.cat!=="all";
+    empty.innerHTML=anyFilter
+      ? `<b>조건에 맞는 항목이 없습니다</b>필터를 넓히거나 초기화하세요.`
+      : `<b>확인할 항목이 없습니다</b>모든 분류가 임계값 안에 있습니다.`;
+  }
+
+  document.querySelectorAll("th.sortable").forEach(th=>{
+    if(th.dataset.sort===S.sort){ th.setAttribute("aria-sort",S.dir<0?"descending":"ascending");
+      th.querySelector(".arrow").textContent=S.dir<0?"↓":"↑"; }
+    else th.removeAttribute("aria-sort");
+  });
+}
+
+function render(){ renderRail(); renderTiles(); renderHist(); renderChips(); renderTable(); syncUrl(); }
+
+/* ─────────────────────────── URL 상태 동기화 ───────────────────────────
+   필터를 쿼리스트링에 실어 "공유 가능한 뷰"를 만든다. 서버 세션 없이
+   URL(클라이언트)이 상태를 들고 있으므로 stateless 를 유지한다.
+   pushState 가 아니라 replaceState — 필터 변경마다 히스토리를 쌓지 않는다. */
+function syncUrl(){
+  const p=new URLSearchParams();
+  if(S.cat!=="all")      p.set("cat",S.cat);
+  if(S.q.trim())         p.set("q",S.q.trim());
+  if(S.sev.size)         p.set("sev",[...S.sev].sort().join(""));
+  if(S.bin!==null)       p.set("bin",S.bin);
+  if(!(S.sort==="dwell"&&S.dir===-1)) p.set("sort",(S.dir<0?"-":"")+S.sort);
+  const qs=p.toString();
+  history.replaceState(null,"",qs?`?${qs}`:location.pathname);
+}
+
+function readUrl(){
+  const p=new URLSearchParams(location.search);
+  if(p.has("cat"))  S.cat=p.get("cat");
+  if(p.has("q")){ S.q=p.get("q"); const el=$("#q"); if(el) el.value=S.q; }
+  if(p.has("sev"))  S.sev=new Set(p.get("sev").split("").map(Number).filter(n=>n>=0&&n<=3));
+  if(p.has("bin")){ const b=+p.get("bin"); if(b>=0&&b<BINS.length) S.bin=b; }
+  if(p.has("sort")){ let v=p.get("sort"); S.dir=v.startsWith("-")?-1:1; S.sort=v.replace(/^-/,"");
+    if(!["dwell","number"].includes(S.sort)){ S.sort="dwell"; S.dir=-1; } }
+}
+
+/* ─────────────────────────── 마크다운 내보내기 ─────────────────────────── */
+function markdown(){
+  const rows=sorted(filtered());
+  const groups=new Map();
+  for(const r of rows){ if(!groups.has(r.catTitle)) groups.set(r.catTitle,[]); groups.get(r.catTitle).push(r); }
+  const out=[];
+  for(const [title,items] of groups){
+    out.push(`* ${title}`);
+    for(const r of items){
+      let l=`   * [#${r.number}](${r.url}) ${r.title} — ${r.metric} ${r.dwell}일`;
+      if(r.kind==="issue" && r.linkedPrs?.length)
+        l+=` (${r.linkedPrs.map(p=>`PR #${p.number} ${p.state.toLowerCase()}`).join(", ")})`;
+      out.push(l);
+    }
+  }
+  return out.join("\n")||"항목 없음";
+}
+
+/* ─────────────────────────── 추이 카드 ───────────────────────────
+   trend.json(주당 집계 한 줄)만 읽어 스파크라인 + 지난주 대비 델타를 그린다.
+   원본 스냅샷이 아니라 집계만 읽으므로 payload 가 수 KB 수준으로 상수에 가깝다. */
+const TREND_SERIES=[
+  {key:"issuePrClosed",label:"PR closed",sev:3},
+  {key:"issuePrStale", label:"PR stale", sev:2},
+  {key:"prLongOpen",   label:"장기 PR",  sev:1},
+  {key:"issueNoPr",    label:"PR 없음",  sev:0},
+];
+
+function sparkline(vals,color){
+  const W=132,H=30,pad=3;
+  if(vals.length<2){ return `<svg width="${W}" height="${H}"></svg>`; }
+  const max=Math.max(1,...vals), min=Math.min(...vals);
+  const span=Math.max(1,max-min);
+  const x=i=>pad+i*(W-2*pad)/(vals.length-1);
+  const y=v=>pad+(H-2*pad)*(1-(v-min)/span);
+  const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const last=vals.length-1;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" points="${pts}"/>
+    <circle cx="${x(last).toFixed(1)}" cy="${y(vals[last]).toFixed(1)}" r="2.4" fill="${color}"/>
+  </svg>`;
+}
+
+function deltaBadge(cur,prev){
+  if(prev===undefined) return `<span class="pill mute">신규</span>`;
+  const d=cur-prev;
+  if(d===0)  return `<span class="delta flat mono">±0</span>`;
+  // 확인 대상은 줄어드는 게 좋음 → 감소를 긍정(ok), 증가를 위험(s3)으로 인코딩
+  const good=d<0;
+  const arrow=d<0?"▾":"▴";
+  return `<span class="delta ${good?"down":"up"} mono">${arrow}${Math.abs(d)}</span>`;
+}
+
+function renderTrend(trend){
+  const card=$("#trend-card");
+  if(!Array.isArray(trend)||trend.length===0){ card.hidden=true; return; }
+  card.hidden=false;
+
+  const cur=trend[trend.length-1], prev=trend[trend.length-2];
+  const totalCur=TREND_SERIES.reduce((s,x)=>s+(cur[x.key]??0),0);
+  const totalPrev=prev?TREND_SERIES.reduce((s,x)=>s+(prev[x.key]??0),0):undefined;
+
+  $("#trend-note").innerHTML = trend.length<2
+    ? `${trend.length}주치 기록 · 다음 주부터 증감 표시`
+    : `최근 ${Math.min(trend.length,12)}주 · 확인 대상 합계 ${totalCur} ${deltaBadge(totalCur,totalPrev)}`;
+
+  const recent=trend.slice(-12);
+  $("#trend-body").innerHTML = `<div class="trend-grid">` + TREND_SERIES.map(s=>{
+    const vals=recent.map(w=>w[s.key]??0);
+    const c=`var(--s${s.sev+1})`;
+    const cv=cur[s.key]??0, pv=prev?prev[s.key]:undefined;
+    return `<div class="trend-row">
+      <span class="trend-dot" style="background:${c}"></span>
+      <span class="trend-label">${s.label}</span>
+      <span class="trend-spark">${sparkline(vals,c)}</span>
+      <span class="trend-cur mono">${cv}</span>
+      <span class="trend-delta">${deltaBadge(cv,pv)}</span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+/* ─────────────────────────── 부트 ─────────────────────────── */
+function boot(data){
+  DATA=data; ROWS=flatten(data);
+  $("#c-repo").textContent=data.repo;
+  $("#c-label").textContent=data.label;
+  $("#s-issue").textContent=data.totals?.openIssues??"–";
+  $("#s-pr").textContent=data.totals?.openPrs??"–";
+  $("#s-gen").textContent=new Date(data.generatedAt)
+    .toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+  const t=data.thresholds||{};
+  $("#t-stale").textContent=(t.staleDays??"–")+"일";
+  $("#t-long").textContent=(t.longOpenDays??"–")+"일";
+  $("#t-nopr").textContent=(t.noPrDays??"–")+"일";
+
+  if(data.demo){
+    const b=$("#banner"); b.hidden=false;
+    b.textContent="데모 데이터입니다. data/report.json 이 없어서 예시를 표시하고 있습니다 — scripts/collect.mjs 를 실행하세요.";
+    $("#pulse").style.background="var(--s2)";
+    $("#pulse").style.boxShadow="0 0 0 3px var(--s2-bg)";
+  }
+  readUrl();          // 공유된 URL 의 필터 상태를 첫 렌더 전에 복원
+  render();
+
+  // 추이는 report 와 독립적으로 로드 (없어도 대시보드는 동작)
+  if(data.demo){ renderTrend(DEMO_TREND); return; }
+  fetch("./data/trend.json",{cache:"no-store"})
+    .then(r=>{ if(!r.ok) throw 0; return r.json(); })
+    .then(renderTrend)
+    .catch(()=>{ $("#trend-card").hidden=true; });
+}
+
+$("#q").addEventListener("input",e=>{S.q=e.target.value; render();});
+$("#reset").addEventListener("click",()=>{
+  S.cat="all"; S.q=""; S.sev.clear(); S.bin=null; $("#q").value=""; render();
+});
+$("#copy").addEventListener("click",async e=>{
+  const b=e.currentTarget;
+  try{ await navigator.clipboard.writeText(markdown()); b.textContent="복사됨"; }
+  catch{ b.textContent="복사 실패"; }
+  setTimeout(()=>b.textContent="마크다운 복사",1500);
+});
+document.querySelectorAll("th.sortable").forEach(th=>{
+  th.onclick=()=>{ const k=th.dataset.sort;
+    if(S.sort===k) S.dir*=-1; else { S.sort=k; S.dir=-1; } render(); };
+});
+$("#theme").addEventListener("click",()=>{
+  const next=document.documentElement.dataset.theme==="dark"?"light":"dark";
+  document.documentElement.dataset.theme=next;
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+    e.preventDefault(); $("#q").focus();
+  }
+  if(e.key==="Escape" && document.activeElement===$("#q")) $("#q").blur();
+});
+/* 라이트가 기본. 다크는 우상단 토글로만 전환한다. */
+
+fetch("./data/report.json",{cache:"no-store"})
+  .then(r=>{ if(!r.ok) throw 0; return r.json(); })
+  .then(boot).catch(()=>boot(DEMO));
+</script>
+</body>
+</html>

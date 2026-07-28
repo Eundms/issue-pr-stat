@@ -1,0 +1,78 @@
+name: k8s-ko triage report
+
+on:
+  schedule:
+    # 매주 월요일 00:10 UTC = 한국시간 월요일 09:10
+    # cron 은 항상 UTC 로 해석된다 (GitHub Actions 는 타임존 지정을 지원하지 않음)
+    - cron: "10 0 * * 1"
+  workflow_dispatch: # 수동 실행 버튼
+  push:
+    branches: [main]
+    # 스냅샷/추이 커밋이 다시 워크플로를 트리거하는 무한 루프를 막는다.
+    # 봇이 커밋하는 산출물 경로를 트리거에서 제외한다.
+    paths-ignore:
+      - "docs/data/**"
+
+# contents:write — 스냅샷/추이를 저장소에 커밋하기 위해 상향
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# 수집 커밋과 Pages 배포가 서로 겹치지 않게 직렬화
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Collect issues and PRs
+        env:
+          # 기본 GITHUB_TOKEN 으로 public repo(kubernetes/website) 조회가 가능하다.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REPO: kubernetes/website
+          TARGET_LABEL: language/ko
+          STALE_DAYS: "30"
+          LONG_OPEN_DAYS: "60"
+          NO_PR_DAYS: "30"
+          OUT: docs/data/report.json
+          SNAPSHOT_DIR: docs/data/snapshots
+          TREND_OUT: docs/data/trend.json
+          KEEP_WEEKS: "8"
+        run: node scripts/collect.mjs
+
+      # 산출물(report/snapshots/trend)을 저장소에 커밋 → git 히스토리가 시계열 저장소가 된다.
+      # report.json 은 .gitignore 되어 있으므로 -f 로 강제 추가한다.
+      - name: Commit data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/report.json docs/data/trend.json docs/data/snapshots
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "chore(data): weekly triage snapshot [skip ci]"
+            git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
