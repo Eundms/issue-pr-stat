@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T02:30:14.035Z",
+  "generatedAt": "2026-08-17T01:52:05.181Z",
   "repo": "kubernetes/website",
   "label": "language/ko",
   "thresholds": {
@@ -8,8 +8,8 @@
     "noPrDays": 30
   },
   "totals": {
-    "openIssues": 44,
-    "openPrs": 42
+    "openIssues": 52,
+    "openPrs": 50
   },
   "sections": [
     {
@@ -30,8 +30,8 @@
           ],
           "createdAt": "2023-10-21T18:00:41Z",
           "updatedAt": "2025-08-07T10:46:34Z",
-          "ageDays": 1023,
-          "idleDays": 367,
+          "ageDays": 1030,
+          "idleDays": 374,
           "comments": 11,
           "labels": [
             "kind/bug",
@@ -51,8 +51,8 @@
               "createdAt": "2025-08-10T07:43:24Z",
               "updatedAt": "2026-03-26T11:32:20Z",
               "mergedAt": null,
-              "ageDays": 364,
-              "idleDays": 136,
+              "ageDays": 371,
+              "idleDays": 143,
               "reviewDecision": null,
               "labels": [
                 "cncf-cla: yes",
@@ -83,8 +83,8 @@
               "createdAt": "2024-01-28T10:31:03Z",
               "updatedAt": "2024-08-29T10:58:44Z",
               "mergedAt": null,
-              "ageDays": 924,
-              "idleDays": 710,
+              "ageDays": 931,
+              "idleDays": 717,
               "reviewDecision": null,
               "labels": [
                 "cncf-cla: yes",
@@ -112,8 +112,8 @@
               "createdAt": "2024-01-28T09:24:50Z",
               "updatedAt": "2024-01-28T10:45:52Z",
               "mergedAt": null,
-              "ageDays": 924,
-              "idleDays": 924,
+              "ageDays": 931,
+              "idleDays": 931,
               "reviewDecision": null,
               "labels": [
                 "cncf-cla: yes",
@@ -130,7 +130,7 @@
               }
             }
           ],
-          "sortKey": 367
+          "sortKey": 374
         },
         {
           "number": 53682,
@@ -142,8 +142,8 @@
           ],
           "createdAt": "2025-12-18T11:00:22Z",
           "updatedAt": "2025-12-28T04:17:30Z",
-          "ageDays": 234,
-          "idleDays": 224,
+          "ageDays": 241,
+          "idleDays": 231,
           "comments": 1,
           "labels": [
             "kind/feature",
@@ -162,8 +162,8 @@
               "createdAt": "2025-12-18T16:54:47Z",
               "updatedAt": "2026-06-25T22:29:24Z",
               "mergedAt": null,
-              "ageDays": 234,
-              "idleDays": 45,
+              "ageDays": 241,
+              "idleDays": 52,
               "reviewDecision": null,
               "labels": [
                 "cncf-cla: yes",
@@ -182,7 +182,7 @@
               }
             }
           ],
-          "sortKey": 224
+          "sortKey": 231
         },
         {
           "number": 53555,
@@ -194,8 +194,8 @@
           ],
           "createdAt": "2025-12-09T13:19:46Z",
           "updatedAt": "2026-03-22T02:33:34Z",
-          "ageDays": 243,
-          "idleDays": 140,
+          "ageDays": 250,
+          "idleDays": 147,
           "comments": 2,
           "labels": [
             "kind/feature",
@@ -215,8 +215,8 @@
               "createdAt": "2026-02-18T13:38:12Z",
               "updatedAt": "2026-08-05T12:35:47Z",
               "mergedAt": null,
-              "ageDays": 172,
-              "idleDays": 4,
+              "ageDays": 179,
+              "idleDays": 11,
               "reviewDecision": null,
               "labels": [
                 "cncf-cla: yes",
@@ -234,7 +234,7 @@
               }
             }
           ],
-          "sortKey": 140
+          "sortKey": 147
         }
       ]
     },
@@ -263,8 +263,8 @@
           "createdAt": "2026-03-05T09:25:53Z",
           "updatedAt": "2026-05-19T12:22:53Z",
           "mergedAt": null,
-          "ageDays": 157,
-          "idleDays": 82,
+          "ageDays": 164,
+          "idleDays": 89,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -290,7 +290,7 @@
             "needsRebase": true,
             "cncfUnsigned": false
           },
-          "sortKey": 157
+          "sortKey": 164
         },
         {
           "closingIssues": [
@@ -308,10 +308,10 @@
           "isDraft": false,
           "author": "Eundms",
           "createdAt": "2026-04-12T03:03:30Z",
-          "updatedAt": "2026-08-05T14:38:09Z",
+          "updatedAt": "2026-08-13T12:33:50Z",
           "mergedAt": null,
-          "ageDays": 119,
-          "idleDays": 4,
+          "ageDays": 126,
+          "idleDays": 3,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -329,7 +329,7 @@
             "needsRebase": false,
             "cncfUnsigned": false
           },
-          "sortKey": 119
+          "sortKey": 126
         },
         {
           "number": 55761,
@@ -341,8 +341,8 @@
           "createdAt": "2026-05-13T17:50:05Z",
           "updatedAt": "2026-06-20T06:32:47Z",
           "mergedAt": null,
-          "ageDays": 88,
-          "idleDays": 50,
+          "ageDays": 95,
+          "idleDays": 57,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -361,7 +361,7 @@
             "needsRebase": true,
             "cncfUnsigned": false
           },
-          "sortKey": 88
+          "sortKey": 95
         },
         {
           "closingIssues": [
@@ -381,8 +381,8 @@
           "createdAt": "2026-05-29T17:08:42Z",
           "updatedAt": "2026-07-22T11:32:51Z",
           "mergedAt": null,
-          "ageDays": 72,
-          "idleDays": 18,
+          "ageDays": 79,
+          "idleDays": 25,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -414,7 +414,7 @@
             "needsRebase": false,
             "cncfUnsigned": false
           },
-          "sortKey": 72
+          "sortKey": 79
         },
         {
           "number": 56016,
@@ -426,8 +426,8 @@
           "createdAt": "2026-06-04T17:55:22Z",
           "updatedAt": "2026-07-16T22:24:14Z",
           "mergedAt": null,
-          "ageDays": 66,
-          "idleDays": 24,
+          "ageDays": 73,
+          "idleDays": 31,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -450,7 +450,7 @@
             "needsRebase": true,
             "cncfUnsigned": false
           },
-          "sortKey": 66
+          "sortKey": 73
         },
         {
           "closingIssues": [
@@ -470,8 +470,8 @@
           "createdAt": "2026-06-09T06:35:32Z",
           "updatedAt": "2026-07-16T22:24:30Z",
           "mergedAt": null,
-          "ageDays": 61,
-          "idleDays": 24,
+          "ageDays": 68,
+          "idleDays": 31,
           "reviewDecision": null,
           "labels": [
             "cncf-cla: yes",
@@ -497,7 +497,7 @@
             "needsRebase": true,
             "cncfUnsigned": false
           },
-          "sortKey": 61
+          "sortKey": 68
         }
       ]
     },
@@ -518,8 +518,8 @@
           ],
           "createdAt": "2026-02-14T14:53:26Z",
           "updatedAt": "2026-03-16T05:40:05Z",
-          "ageDays": 176,
-          "idleDays": 146,
+          "ageDays": 183,
+          "idleDays": 153,
           "comments": 1,
           "labels": [
             "kind/feature",
@@ -527,7 +527,7 @@
             "triage/accepted"
           ],
           "linkedPrs": [],
-          "sortKey": 176
+          "sortKey": 183
         },
         {
           "number": 55166,
@@ -539,8 +539,8 @@
           ],
           "createdAt": "2026-03-30T14:28:18Z",
           "updatedAt": "2026-07-08T14:17:31Z",
-          "ageDays": 132,
-          "idleDays": 32,
+          "ageDays": 139,
+          "idleDays": 39,
           "comments": 4,
           "labels": [
             "kind/feature",
@@ -549,7 +549,7 @@
             "area/localization"
           ],
           "linkedPrs": [],
-          "sortKey": 132
+          "sortKey": 139
         },
         {
           "number": 55568,
@@ -561,8 +561,8 @@
           ],
           "createdAt": "2026-04-27T11:47:49Z",
           "updatedAt": "2026-04-27T11:47:56Z",
-          "ageDays": 104,
-          "idleDays": 104,
+          "ageDays": 111,
+          "idleDays": 111,
           "comments": 1,
           "labels": [
             "kind/feature",
@@ -571,7 +571,7 @@
             "area/localization"
           ],
           "linkedPrs": [],
-          "sortKey": 104
+          "sortKey": 111
         },
         {
           "number": 56426,
@@ -583,8 +583,8 @@
           ],
           "createdAt": "2026-07-07T16:18:06Z",
           "updatedAt": "2026-07-07T16:19:47Z",
-          "ageDays": 33,
-          "idleDays": 33,
+          "ageDays": 40,
+          "idleDays": 40,
           "comments": 3,
           "labels": [
             "kind/feature",
@@ -593,7 +593,7 @@
             "area/localization"
           ],
           "linkedPrs": [],
-          "sortKey": 33
+          "sortKey": 40
         }
       ]
     }
